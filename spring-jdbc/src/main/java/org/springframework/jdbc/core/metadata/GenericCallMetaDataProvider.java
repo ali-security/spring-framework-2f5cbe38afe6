@@ -22,6 +22,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -128,10 +129,10 @@ public class GenericCallMetaDataProvider implements CallMetaDataProvider {
 			return null;
 		}
 		else if (isStoresUpperCaseIdentifiers()) {
-			return procedureName.toUpperCase();
+			return procedureName.toUpperCase(Locale.ROOT);
 		}
 		else if (isStoresLowerCaseIdentifiers()) {
-			return procedureName.toLowerCase();
+			return procedureName.toLowerCase(Locale.ROOT);
 		}
 		else {
 			return procedureName;
@@ -145,10 +146,10 @@ public class GenericCallMetaDataProvider implements CallMetaDataProvider {
 			return null;
 		}
 		else if (isStoresUpperCaseIdentifiers()) {
-			return catalogName.toUpperCase();
+			return catalogName.toUpperCase(Locale.ROOT);
 		}
 		else if (isStoresLowerCaseIdentifiers()) {
-			return catalogName.toLowerCase();
+			return catalogName.toLowerCase(Locale.ROOT);
 		}
 		else {
 			return catalogName;
@@ -162,10 +163,10 @@ public class GenericCallMetaDataProvider implements CallMetaDataProvider {
 			return null;
 		}
 		else if (isStoresUpperCaseIdentifiers()) {
-			return schemaName.toUpperCase();
+			return schemaName.toUpperCase(Locale.ROOT);
 		}
 		else if (isStoresLowerCaseIdentifiers()) {
-			return schemaName.toLowerCase();
+			return schemaName.toLowerCase(Locale.ROOT);
 		}
 		else {
 			return schemaName;
@@ -201,10 +202,10 @@ public class GenericCallMetaDataProvider implements CallMetaDataProvider {
 			return null;
 		}
 		else if (isStoresUpperCaseIdentifiers()) {
-			return parameterName.toUpperCase();
+			return parameterName.toUpperCase(Locale.ROOT);
 		}
 		else if (isStoresLowerCaseIdentifiers()) {
-			return parameterName.toLowerCase();
+			return parameterName.toLowerCase(Locale.ROOT);
 		}
 		else {
 			return parameterName;
