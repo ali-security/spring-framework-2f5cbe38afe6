@@ -230,7 +230,7 @@ public abstract class MimeTypeUtils {
 						break;
 					}
 				}
-				else if (ch == '"') {
+				else if (ch == '"' && (nextIndex == 0 || mimeType.charAt(nextIndex - 1) != '\\')) {
 					quoted = !quoted;
 				}
 				nextIndex++;
