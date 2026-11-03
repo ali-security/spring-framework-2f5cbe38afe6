@@ -1,0 +1,136 @@
+name: "Seal Build"
+on:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: "Gradle test selector, e.g. ':spring-core:test --tests org.springframework.util.StringUtilsTests'. Empty runs the full suite."
+        required: false
+        default: ""
+
+jobs:
+  build:
+    name: "${{ matrix.module }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - spring-core
+          - spring-beans
+          - spring-context
+          - spring-context-support
+          - spring-expression
+          - spring-jdbc
+          - spring-jms
+          - spring-messaging
+          - spring-test
+          - spring-web
+          - spring-webflux
+          - spring-webmvc
+          - spring-websocket
+          - integration-tests
+    steps:
+      - uses: actions/checkout@v4
+      # .sdkmanrc pins java=8.0.322-librca; the public jar's manifest reads Created-By: 1.8.0_322
+      - uses: actions/setup-java@v4
+        with:
+          distribution: liberica
+          java-version: "8.0.322+6"
+      - name: Test
+        if: ${{ inputs.test-filter == '' || matrix.module == 'spring-core' }}
+        run: |
+          if [ -n "${{ inputs.test-filter }}" ]; then
+            ./gradlew -Dorg.gradle.internal.launcher.welcomeMessageEnabled=false --no-daemon --console=plain --continue ${{ inputs.test-filter }}
+          else
+            ./gradlew -Dorg.gradle.internal.launcher.welcomeMessageEnabled=false --no-daemon --console=plain --continue :${{ matrix.module }}:test
+          fi
+      - name: Test results
+        if: ${{ always() && (inputs.test-filter == '' || matrix.module == 'spring-core') }}
+        run: |
+          python3 - <<'EOF'
+          import glob, re, xml.etree.ElementTree as ET
+          SKIP_RE = re.compile(r'@(Disabled|Ignore|Enabled|EnabledIf|DisabledIf|EnabledOn|DisabledOn|EnabledForTestGroups|EnabledForJreRange)|\bassume|Assume')
+          def skip_reason(module, classname, method):
+              # Gradle's JUnit XML has an empty <skipped/> for @Disabled/@Ignore/assumptions:
+              # look the skip-causing annotation or assumption up in the test source instead.
+              outer = classname.split('$')[0]
+              rel = outer.replace('.', '/')
+              files = glob.glob('%s/src/test/*/%s.*' % (module, rel)) + glob.glob('*/src/test/*/%s.*' % rel)
+              if not files:
+                  return None
+              lines = open(files[0], encoding='utf-8').read().splitlines()
+              found = []
+              decl = re.compile(r'\b(fun\s+`?)?%s`?\s*\(' % re.escape(method))
+              for i, line in enumerate(lines):
+                  if decl.search(line) and not line.strip().endswith(';'):
+                      for j in range(i - 1, max(i - 12, -1), -1):
+                          s = lines[j].strip()
+                          if s.endswith(';') or s.endswith('}') or s == '':
+                              break
+                          if SKIP_RE.search(s):
+                              found.append(s)
+                      if not found:
+                          for s in lines[i + 1:i + 30]:
+                              if SKIP_RE.search(s):
+                                  found.append(s.strip())
+                                  break
+                      break
+              if not found:
+                  for simple in [p.split('.')[-1] for p in classname.split('$')]:
+                      for i, line in enumerate(lines):
+                          if re.search(r'\bclass\s+%s\b' % re.escape(simple), line):
+                              for j in range(i - 1, max(i - 12, -1), -1):
+                                  s = lines[j].strip()
+                                  if s.endswith(';') or s.endswith('}') or s == '':
+                                      break
+                                  if SKIP_RE.search(s):
+                                      found.append('class-level ' + s)
+                              break
+              if not found:
+                  # inherited test methods, @BeforeAll/@Before assumptions, JUnit 4 @Ignore/@IfProfileValue:
+                  # report the file's (and its superclasses') skip conditions
+                  seen, todo = set(), [files[0]]
+                  while todo and len(seen) < 4:
+                      f = todo.pop(0)
+                      if f in seen:
+                          continue
+                      seen.add(f)
+                      src = open(f, encoding='utf-8').read()
+                      for s in src.splitlines():
+                          s = s.strip()
+                          if not s.startswith('import') and (SKIP_RE.search(s) or '@IfProfileValue' in s):
+                              found.append('%s: %s' % (f.split('/')[-1], s))
+                      for sup in re.findall(r'\bextends\s+(\w+)', src):
+                          todo += glob.glob('*/src/test/*/**/%s.java' % sup, recursive=True)[:1]
+                  found = ['file-level conditions:'] + found[:6] if found else []
+              return ' '.join(found) or None
+          tests = failures = errors = skipped = 0
+          for path in sorted(glob.glob('*/build/test-results/test/TEST-*.xml')):
+              module = path.split('/')[0]
+              suite = ET.parse(path).getroot()
+              tests += int(suite.get('tests', 0))
+              failures += int(suite.get('failures', 0))
+              errors += int(suite.get('errors', 0))
+              skipped += int(suite.get('skipped', 0))
+              for case in suite.iter('testcase'):
+                  name = case.get('classname') + '.' + case.get('name')
+                  for s in case.findall('skipped'):
+                      method = re.split(r'[\(\[ ]', case.get('name'))[0]
+                      reason = s.get('message') or skip_reason(module, case.get('classname'), method) or '(not found in source: upstream JUnit condition/assumption)'
+                      print('SKIPPED TEST %s -- reason: %s' % (name, reason))
+                  for f in case.findall('failure') + case.findall('error'):
+                      print('FAILED TEST %s -- %s' % (name, (f.get('message') or '')[:300]))
+                      print((f.text or '')[:6000])
+          passed = tests - failures - errors - skipped
+          print('TEST SUMMARY [${{ matrix.module }}]: %d tests, %d passed, %d failed, %d errors, %d skipped' % (tests, passed, failures, errors, skipped))
+          EOF
+      - name: Build jar
+        if: ${{ matrix.module == 'spring-core' }}
+        run: ./gradlew -Dorg.gradle.internal.launcher.welcomeMessageEnabled=false --no-daemon --console=plain :spring-core:jar
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.module == 'spring-core' }}
+        with:
+          name: spring-core-jar
+          path: spring-core/build/libs/spring-core-5.3.17.jar
+          if-no-files-found: error
